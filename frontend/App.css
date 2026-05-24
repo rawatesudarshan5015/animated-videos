@@ -1,0 +1,55 @@
+.app {
+  text-align: center;
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.app h1 {
+  font-size: 2.5em;
+  margin-bottom: 1rem;
+  color: #646cff;
+}
+
+.app p {
+  font-size: 1.1em;
+  margin: 0.5rem 0;
+}
+
+.status {
+  font-weight: bold;
+  color: #4CAF50;
+}
+
+.api-status {
+  font-size: 0.9em;
+  color: #FF9800;
+}
+
+.features {
+  margin-top: 2rem;
+  text-align: left;
+  background-color: #f5f5f5;
+  padding: 1.5rem;
+  border-radius: 8px;
+  color: #333;
+}
+
+.features h2 {
+  color: #646cff;
+  margin-top: 0;
+}
+
+.features ul {
+  list-style-type: none;
+  padding-left: 0;
+}
+
+.features li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #ddd;
+}
+
+.features li:last-child {
+  border-bottom: none;
+}
