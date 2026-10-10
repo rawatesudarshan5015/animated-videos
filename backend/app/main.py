@@ -4,7 +4,9 @@ Main entry point for the backend API.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import health, upload
+from fastapi.staticfiles import StaticFiles
+import os
+from app.routes import health, upload, youtube
 
 app = FastAPI(title="Kids Video Enhancer API", version="0.1.0")
 
@@ -19,7 +21,12 @@ app.add_middleware(
 
 # Include routers
 app.include_router(health.router)
-app.include_router(upload.router)
+app.include_router(upload.router, tags=["video"])
+app.include_router(youtube.router, tags=["youtube"])
+
+# Mount static files to serve processed videos
+os.makedirs("uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
 @app.get("/")

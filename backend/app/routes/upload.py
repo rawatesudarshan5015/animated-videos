@@ -7,11 +7,12 @@ import shutil
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, Query
+from fastapi import APIRouter, File, UploadFile, HTTPException, Query, BackgroundTasks
 
 from app.services.video_service import VideoProcessor
 from app.services.cartoon_filter import CartoonFilter
-from app.services.subtitle_service import SubtitleService
+from app.services.job_manager import job_manager
+from app.services.storage_service import storage_service
 
 router = APIRouter()
 
@@ -33,14 +34,54 @@ SUPPORTED_FILTERS = {
 }
 
 
+def background_process_video(
+    job_id: str,
+    saved_path: str,
+    output_path: str,
+    filter_func,
+    generate_subtitles: bool,
+    subtitle_options: dict,
+    add_stickers: bool,
+    add_sfx: bool
+):
+    try:
+        processor = VideoProcessor()
+        result = processor.process_video(
+            saved_path,
+            output_path,
+            filter_func,
+            generate_subtitles=generate_subtitles,
+            subtitle_options=subtitle_options,
+            add_stickers=add_stickers,
+            add_sfx=add_sfx
+        )
+        job_manager.mark_completed(job_id, result)
+        
+        # Aggressively clean up intermediate files to save disk space
+        if os.path.exists(saved_path):
+            os.remove(saved_path)
+            
+        if result.get("srt_path") and os.path.exists(result["srt_path"]):
+            os.remove(result["srt_path"])
+            
+    except Exception as e:
+        job_manager.mark_failed(job_id, str(e))
+        # Even on failure, try to clean up the original upload
+        if os.path.exists(saved_path):
+            os.remove(saved_path)
+
+
 @router.post("/upload")
 async def upload_video(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     filter_type: str = Query("none", description="Filter to apply: none, cartoon, light_cartoon, heavy_cartoon"),
     generate_subtitles: bool = Query(False, description="Whether to generate and burn subtitles into the video"),
     subtitle_font_size: int = Query(24, description="Font size for subtitles"),
     subtitle_font_color: str = Query("white", description="Font color for subtitles"),
-    subtitle_outline_color: str = Query("black", description="Outline color for subtitles")
+    subtitle_outline_color: str = Query("black", description="Outline color for subtitles"),
+    add_stickers: bool = Query(False, description="Whether to add kid-friendly sticker overlays"),
+    add_sfx: bool = Query(False, description="Whether to add funny sound effects")
 ):
     """
     Upload and process a video file with optional cartoon filter.
@@ -105,39 +146,39 @@ async def upload_video(
                 
                 buffer.write(chunk)
 
-        # Process video with optional filter
-        processor = VideoProcessor()
+        # Create job
+        job_manager.create_job(unique_id)
+        
         output_filename = f"{unique_id}_processed.mp4"
         output_path = os.path.join(OUTPUT_DIR, output_filename)
 
         # Get filter function if specified
         filter_func = SUPPORTED_FILTERS.get(filter_type)
 
-        result = processor.process_video(
+        # Dispatch background task
+        background_tasks.add_task(
+            background_process_video,
+            unique_id,
             saved_path,
             output_path,
             filter_func,
-            generate_subtitles=generate_subtitles,
-            subtitle_options={
+            generate_subtitles,
+            {
                 "font_size": subtitle_font_size,
                 "font_color": subtitle_font_color,
                 "outline_color": subtitle_outline_color,
-            }
+            },
+            add_stickers,
+            add_sfx
         )
+
+        # Dispatch background cleanup of old files (passive cleanup)
+        background_tasks.add_task(storage_service.cleanup_old_files, max_age_hours=24)
 
         return {
             "status": "success",
-            "message": "Video processed successfully",
-            "input_file": saved_filename,
-            "output_file": output_filename,
-            "output_path": output_path,
-            "file_size_mb": round(file_size / (1024**2), 2),
-            "frame_count": result["frame_count"],
-            "fps": round(result["fps"], 2),
-            "resolution": result["resolution"],
-            "filter_applied": filter_type,
-            "subtitles_generated": result["subtitles_generated"],
-            "srt_path": result["srt_path"],
+            "message": "Video uploaded and processing started",
+            "job_id": unique_id
         }
 
     except HTTPException:
@@ -151,8 +192,17 @@ async def upload_video(
 
         raise HTTPException(
             status_code=500,
-            detail=f"Error processing video: {str(e)}"
+            detail=f"Error starting video processing: {str(e)}"
         )
+
+
+@router.get("/status/{job_id}")
+async def get_job_status(job_id: str):
+    """Get the processing status of a video job."""
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 
 @router.get("/health/upload")

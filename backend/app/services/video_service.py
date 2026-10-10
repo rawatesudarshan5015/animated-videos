@@ -92,16 +92,18 @@ class VideoProcessor:
         frame_dir: str, 
         output_path: str, 
         fps: float, 
-        resolution: tuple
+        resolution: tuple,
+        original_video_path: Optional[str] = None
     ) -> str:
         """
-        Reconstruct video from extracted frames using FFmpeg.
+        Reconstruct video from extracted frames using FFmpeg, copying audio from original video.
         
         Args:
             frame_dir: Directory containing extracted frames
             output_path: Path for output video file
             fps: Frames per second for output video
             resolution: Tuple of (width, height)
+            original_video_path: Path to original video to extract audio from
             
         Returns:
             str: Path to reconstructed video
@@ -119,19 +121,43 @@ class VideoProcessor:
             # Build frame input pattern
             frame_pattern = os.path.join(frame_dir, "frame_%06d.png")
 
-            # Use ffmpeg to reconstruct video
-            (
-                ffmpeg
-                .input(frame_pattern, framerate=fps)
-                .output(
-                    output_path,
-                    vcodec='libx264',
-                    pix_fmt='yuv420p',
-                    **{'loglevel': 'error'}  # Suppress verbose output
+            # Video input stream (from frames)
+            video_input = ffmpeg.input(frame_pattern, framerate=fps)
+
+            # If original video is provided, copy its audio
+            if original_video_path and os.path.exists(original_video_path):
+                audio_input = ffmpeg.input(original_video_path)
+                
+                # Combine video stream from frames and audio stream from original
+                # Use vcodec='libx264', acodec='copy' to preserve original audio quality
+                (
+                    ffmpeg
+                    .output(
+                        video_input.video,
+                        audio_input.audio,
+                        output_path,
+                        vcodec='libx264',
+                        pix_fmt='yuv420p',
+                        acodec='copy',
+                        **{'loglevel': 'error'}
+                    )
+                    .overwrite_output()
+                    .run()
                 )
-                .overwrite_output()
-                .run()
-            )
+            else:
+                # Reconstruct video without audio (fallback)
+                (
+                    ffmpeg
+                    .output(
+                        video_input,
+                        output_path,
+                        vcodec='libx264',
+                        pix_fmt='yuv420p',
+                        **{'loglevel': 'error'}
+                    )
+                    .overwrite_output()
+                    .run()
+                )
 
             if not os.path.exists(output_path):
                 raise RuntimeError("FFmpeg failed to create output video")
@@ -209,15 +235,9 @@ class VideoProcessor:
         output_path: str, 
         filter_func: Optional[Callable] = None,
         generate_subtitles: bool = False,
-        subtitle_options: Optional[dict] = None
-    ) -> dict:
-    def process_video(
-        self, 
-        video_path: str, 
-        output_path: str, 
-        filter_func: Optional[Callable] = None,
-        generate_subtitles: bool = False,
-        subtitle_options: Optional[dict] = None
+        subtitle_options: Optional[dict] = None,
+        add_stickers: bool = False,
+        add_sfx: bool = False
     ) -> dict:
         """
         Complete video processing pipeline: extract frames, optionally filter, optionally add subtitles, and reconstruct.
@@ -232,6 +252,8 @@ class VideoProcessor:
                             - font_size: Font size (default 24)
                             - font_color: Font color (default "white")
                             - outline_color: Outline color (default "black")
+            add_stickers: Whether to add sticker overlays to the video
+            add_sfx: Whether to add sound effects to the video
             
         Returns:
             dict with processing results
@@ -253,10 +275,10 @@ class VideoProcessor:
                 self.apply_filter_to_frames(frames_temp_dir, filter_func)
                 filter_applied = True
 
-            # Step 3: Reconstruct video (temporary if subtitles needed)
+            # Step 3: Reconstruct video (temporary if subtitles, stickers, or sfx needed)
             temp_video_path = output_path
-            if generate_subtitles:
-                # Create intermediate video without subtitles
+            if generate_subtitles or add_stickers or add_sfx:
+                # Create intermediate video
                 temp_video_path = output_path.replace('.mp4', '_temp.mp4')
             
             self.reconstruct_video(
@@ -264,6 +286,7 @@ class VideoProcessor:
                 temp_video_path,
                 extraction_info["fps"],
                 extraction_info["resolution"],
+                original_video_path=video_path
             )
 
             # Step 4: Generate and burn subtitles if requested
@@ -279,22 +302,55 @@ class VideoProcessor:
                 srt_path = os.path.join(os.path.dirname(output_path), f"{video_name}_subtitles.srt")
                 srt_path, subtitle_entries = subtitle_service.generate_subtitles(video_path, srt_path)
                 
+                # Target path for subtitles depends on whether stickers or sfx are added next
+                subtitle_target = output_path.replace('.mp4', '_subbed.mp4') if (add_stickers or add_sfx) else output_path
+                
                 # Burn subtitles into video
                 subtitle_opts = subtitle_options or {}
-                final_output = subtitle_service.burn_subtitles_into_video(
+                subtitle_service.burn_subtitles_into_video(
                     temp_video_path,
                     srt_path,
-                    output_path,
+                    subtitle_target,
                     font_size=subtitle_opts.get('font_size', 24),
                     font_color=subtitle_opts.get('font_color', 'white'),
                     outline_color=subtitle_opts.get('outline_color', 'black')
                 )
                 
-                # Clean up intermediate video
+                # Clean up initial temp_video_path
+                if os.path.exists(temp_video_path) and temp_video_path != output_path:
+                    os.remove(temp_video_path)
+                    
+                temp_video_path = subtitle_target
+                subtitles_generated = True
+
+            # Step 5: Add stickers if requested
+            stickers_added = False
+            if add_stickers:
+                from app.services.sticker_service import StickerService
+                sticker_service = StickerService()
+                
+                sticker_target = output_path.replace('.mp4', '_stickered.mp4') if add_sfx else output_path
+                sticker_service.apply_stickers(temp_video_path, sticker_target)
+                
+                # Clean up the previous temp video
+                if os.path.exists(temp_video_path) and temp_video_path != output_path:
+                    os.remove(temp_video_path)
+                    
+                temp_video_path = sticker_target
+                stickers_added = True
+
+            # Step 6: Add sound effects if requested
+            sfx_added = False
+            if add_sfx:
+                from app.services.audio_service import AudioService
+                audio_service = AudioService()
+                
+                audio_service.add_sound_effects(temp_video_path, output_path)
+                
                 if os.path.exists(temp_video_path) and temp_video_path != output_path:
                     os.remove(temp_video_path)
                 
-                subtitles_generated = True
+                sfx_added = True
 
             return {
                 "status": "success",
@@ -305,6 +361,8 @@ class VideoProcessor:
                 "filter_applied": filter_applied,
                 "subtitles_generated": subtitles_generated,
                 "srt_path": srt_path,
+                "stickers_added": stickers_added,
+                "sfx_added": sfx_added,
             }
 
         finally:

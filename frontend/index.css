@@ -1,47 +1,103 @@
 :root {
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  /* Colors - Light Playful Theme */
+  --bg-primary: #f0f8ff; /* Alice Blue */
+  --bg-secondary: #ffffff;
+  --primary-color: #ff6b6b; /* Playful red/pink */
+  --secondary-color: #4ecdc4; /* Playful teal */
+  --accent-color: #ffe66d; /* Bright yellow */
+  
+  --text-main: #2d3436;
+  --text-muted: #636e72;
+  
+  /* Gradients */
+  --gradient-main: linear-gradient(135deg, #ff9a9e 0%, #fecfef 99%, #fecfef 100%);
+  --gradient-btn: linear-gradient(135deg, #ff6b6b 0%, #ff8e8e 100%);
+  
+  /* Shadows for Glassmorphism & Depth */
+  --shadow-soft: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+  --shadow-hover: 0 12px 40px 0 rgba(31, 38, 135, 0.12);
+  --shadow-inner: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);
+  
+  /* Borders */
+  --border-radius: 24px;
+  --border-glass: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 body {
-  color: #213547;
-  background-color: rgba(255, 255, 255, 0.87);
-  margin: 0;
-  padding: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  font-family: 'Nunito', sans-serif;
+  background-color: var(--bg-primary);
+  /* Animated gradient background */
+  background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+  background-size: 400% 400%;
+  animation: gradientBG 15s ease infinite;
+  color: var(--text-main);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
+@keyframes gradientBG {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
-a:hover {
-  color: #535bf2;
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Fredoka', sans-serif;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+#root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: var(--border-glass);
+  border-radius: var(--border-radius);
+  box-shadow: var(--shadow-soft);
+  padding: 2rem;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.glass-panel:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--shadow-hover);
 }
 
 button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
+  font-family: 'Fredoka', sans-serif;
+  font-weight: 600;
+  font-size: 1.1rem;
+  padding: 0.8rem 1.5rem;
+  border-radius: 50px;
+  border: none;
   cursor: pointer;
-  transition: border-color 0.25s;
+  background: var(--gradient-btn);
+  color: white;
+  box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
+  transition: all 0.3s ease;
 }
 
 button:hover {
-  border-color: #646cff;
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 6px 20px rgba(255, 107, 107, 0.4);
 }
 
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }

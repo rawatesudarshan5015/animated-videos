@@ -52,20 +52,61 @@ class SubtitleEntry:
 
 
 class SubtitleService:
-    """Handles subtitle generation and SRT file creation."""
+    """Handles subtitle generation and SRT file creation using OpenAI Whisper."""
 
-    def __init__(self):
-        """Initialize subtitle service."""
-        # For now, we'll use a mock implementation
-        # TODO: Replace with actual Whisper integration
-        pass
+    _model = None
+
+    def __init__(self, model_name: str = "tiny"):
+        """
+        Initialize subtitle service.
+
+        Args:
+            model_name: Name of Whisper model to use (tiny, base, small, medium, large)
+                       Defaults to "tiny" for fast CPU processing.
+        """
+        self.model_name = model_name
+
+    def _get_model(self):
+        """Lazy load and cache the Whisper model to avoid multiple long loads."""
+        if SubtitleService._model is None:
+            import whisper
+            print(f"Loading Whisper model '{self.model_name}'...")
+            SubtitleService._model = whisper.load_model(self.model_name)
+        return SubtitleService._model
+
+    def _extract_audio(self, video_path: str, audio_path: str) -> str:
+        """
+        Extract mono 16kHz WAV audio from a video using FFmpeg.
+
+        Args:
+            video_path: Path to input video file
+            audio_path: Output temporary WAV audio path
+
+        Returns:
+            str: Path to the extracted audio WAV file
+        """
+        import ffmpeg
+        try:
+            (
+                ffmpeg
+                .input(video_path)
+                .output(
+                    audio_path,
+                    acodec='pcm_s16le',
+                    ac=1,
+                    ar='16000',
+                    **{'loglevel': 'error'}
+                )
+                .overwrite_output()
+                .run()
+            )
+            return audio_path
+        except ffmpeg.Error as e:
+            raise RuntimeError(f"FFmpeg error extracting audio: {e.stderr.decode() if e.stderr else str(e)}")
 
     def generate_subtitles(self, video_path: str, output_srt_path: Optional[str] = None) -> Tuple[str, List[SubtitleEntry]]:
         """
-        Generate subtitles for a video file.
-
-        For now, this is a mock implementation that creates sample subtitles.
-        In production, this would use Whisper or similar STT service.
+        Generate subtitles for a video file using OpenAI Whisper.
 
         Args:
             video_path: Path to input video file
@@ -84,37 +125,51 @@ class SubtitleService:
         # Generate default SRT path if not provided
         if output_srt_path is None:
             video_name = Path(video_path).stem
-            output_srt_path = f"{video_name}_subtitles.srt"
+            output_srt_path = os.path.join(os.path.dirname(video_path), f"{video_name}_subtitles.srt")
 
-        # Mock subtitle generation
-        # In a real implementation, this would:
-        # 1. Extract audio from video
-        # 2. Run Whisper STT on audio
-        # 3. Generate timestamps and text
-        subtitles = self._generate_mock_subtitles(video_path)
+        # Create temporary audio path
+        import tempfile
+        # Generate temporary unique wav file
+        temp_audio = os.path.join(tempfile.gettempdir(), f"temp_audio_{os.getpid()}_{os.urandom(4).hex()}.wav")
 
-        # Write SRT file
-        self._write_srt_file(subtitles, output_srt_path)
+        try:
+            # 1. Extract audio from video
+            self._extract_audio(video_path, temp_audio)
 
-        return output_srt_path, subtitles
+            # 2. Lazy load Whisper model
+            model = self._get_model()
 
-    def _generate_mock_subtitles(self, video_path: str) -> List[SubtitleEntry]:
-        """
-        Generate mock subtitles for demonstration.
+            # 3. Transcribe audio using Whisper
+            print("Transcribing audio with Whisper...")
+            result = model.transcribe(temp_audio, fp16=False)
 
-        This creates sample subtitles at regular intervals.
-        In production, replace with actual Whisper processing.
-        """
-        # Mock subtitles - in real implementation, this would come from Whisper
-        mock_entries = [
-            SubtitleEntry(1, 0.0, 3.0, "Welcome to the Kids Video Enhancer!"),
-            SubtitleEntry(2, 3.5, 6.5, "This video has been processed with cartoon effects."),
-            SubtitleEntry(3, 7.0, 10.0, "Enjoy the enhanced visual experience!"),
-            SubtitleEntry(4, 10.5, 13.5, "Created with OpenCV and FFmpeg."),
-            SubtitleEntry(5, 14.0, 17.0, "Thank you for using our service!"),
-        ]
+            # 4. Map Whisper segments to SubtitleEntry format
+            subtitles = []
+            for i, segment in enumerate(result.get("segments", []), 1):
+                entry = SubtitleEntry(
+                    index=i,
+                    start_time=segment["start"],
+                    end_time=segment["end"],
+                    text=segment["text"]
+                )
+                subtitles.append(entry)
 
-        return mock_entries
+            # If no speech was detected, create a default single entry
+            if not subtitles:
+                subtitles.append(SubtitleEntry(1, 0.0, 3.0, "[No Speech Detected]"))
+
+            # 5. Write SRT file
+            self._write_srt_file(subtitles, output_srt_path)
+
+            return output_srt_path, subtitles
+
+        finally:
+            # Always clean up temporary audio files
+            if os.path.exists(temp_audio):
+                try:
+                    os.remove(temp_audio)
+                except:
+                    pass
 
     def _write_srt_file(self, subtitles: List[SubtitleEntry], output_path: str) -> None:
         """
@@ -130,6 +185,16 @@ class SubtitleService:
         with open(output_path, 'w', encoding='utf-8') as f:
             for subtitle in subtitles:
                 f.write(subtitle.to_srt_format())
+
+    def _escape_windows_path(self, path_str: str) -> str:
+        """Normalize and escape Windows path for FFmpeg filters."""
+        # Replace backslashes with forward slashes
+        p = path_str.replace('\\', '/')
+        # Escape colon (e.g. "E:/" -> "E\:/")
+        p = p.replace(':', '\\:')
+        # Escape single quotes and commas
+        p = p.replace("'", "'\\\\''").replace(",", "\\,")
+        return p
 
     def burn_subtitles_into_video(
         self,
@@ -169,14 +234,16 @@ class SubtitleService:
         try:
             import ffmpeg
 
+            # Normalize and escape the SRT path for the FFmpeg subtitles filter
+            escaped_srt_path = self._escape_windows_path(srt_path)
+
             # Build FFmpeg command to burn subtitles
-            # Using subtitles filter to overlay SRT on video
             (
                 ffmpeg
                 .input(video_path)
                 .output(
                     output_path,
-                    vf=f"subtitles={srt_path}:force_style='FontSize={font_size},PrimaryColour=&H{self._color_to_bgr(font_color)},OutlineColour=&H{self._color_to_bgr(outline_color)},BorderStyle=1'",
+                    vf=f"subtitles='{escaped_srt_path}':force_style='FontSize={font_size},PrimaryColour=&H{self._color_to_bgr(font_color)},OutlineColour=&H{self._color_to_bgr(outline_color)},BorderStyle=1'",
                     vcodec='libx264',
                     acodec='aac',
                     **{'loglevel': 'error'}
@@ -191,7 +258,7 @@ class SubtitleService:
             return output_path
 
         except ffmpeg.Error as e:
-            raise RuntimeError(f"FFmpeg error during subtitle burning: {e.stderr.decode()}")
+            raise RuntimeError(f"FFmpeg error during subtitle burning: {e.stderr.decode() if e.stderr else str(e)}")
 
     def _color_to_bgr(self, color_name: str) -> str:
         """

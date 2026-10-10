@@ -50,13 +50,41 @@ Convert normal videos into animated, kid-friendly content with cartoon filters, 
 - Apply effects to frames
 
 ### ⏳ Future Phases
-- Phase 4: Subtitle generation
-- Phase 5: Sticker/emoji overlays
-- Phase 6: Sound effects
-- Phase 7: Frontend UI
-- Phase 8: Job queue (async processing)
-- Phase 9: Storage + export
-- Phase 10: Deployment
+### ✅ Phase 4: Subtitle generation
+- Audio extraction
+- OpenAI Whisper transcription
+- FFmpeg SRT subtitle burning
+
+### ✅ Phase 5: Sticker/emoji overlays
+- Automated kid-friendly sticker generation
+- FFmpeg static overlays
+- Integration with upload endpoint
+
+### ✅ Phase 6: Sound effects
+- Procedural SFX generation
+- FFmpeg audio mixing (`amix`)
+- Integration with upload endpoint
+
+### ✅ Phase 7: Frontend UI
+- Premium responsive layout
+- React UI with glassmorphism and animations
+- Integration with all backend features
+
+### ✅ Phase 8: Job queue (async processing)
+- In-memory job tracker (`JobManager`)
+- FastAPI `BackgroundTasks`
+- Frontend polling mechanism
+
+### ✅ Phase 9: Storage + export
+- Aggressive cleanup of intermediate files (SRT, temp chunks)
+- Automated 24-hour retention policy sweeping
+- Passive background execution on new uploads
+
+### ✅ Phase 10: Deployment
+- Containerization with Docker
+- Multi-stage Nginx build for Frontend
+- System dependencies (FFmpeg/OpenCV) managed in Backend Dockerfile
+- `docker-compose.yml` orchestration
 
 ## 🚀 Quick Start
 

@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: kids_video_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/assets:/app/assets
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Pass the backend URL so the frontend knows where to make API requests
+        # If running locally, the browser accesses localhost:8000
+        - VITE_API_URL=http://localhost:8000
+    container_name: kids_video_frontend
+    ports:
+      - "3001:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
